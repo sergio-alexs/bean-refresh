@@ -1,0 +1,307 @@
+{
+	"info": {
+		"_postman_id": "b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+		"name": "Bean Refresh PoC - Spring Boot",
+		"description": "Colección de pruebas para la PoC de actualización periódica en segundo plano cada 4 horas con Spring Cache (Caffeine) y fallback bajo demanda en caso de fallos.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "1. Catálogo de Productos",
+			"item": [
+				{
+					"name": "Obtener Productos (GET /api/products)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200 (éxito) o 503 (fuente caída)\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    pm.test(\"Cabecera X-Cache-Status presente (HIT o MISS_OR_RELOADED)\", function () {",
+									"        pm.expect(pm.response.headers.has(\"X-Cache-Status\")).to.be.true;",
+									"        console.log(\"Estado de Caché:\", pm.response.headers.get(\"X-Cache-Status\"));",
+									"    });",
+									"    pm.test(\"Retorna lista de productos\", function () {",
+									"        var jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.be.an(\"array\");",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "Obtiene los productos.\n- La primera petición tras iniciar o invalidar retornará el header `X-Cache-Status: MISS_OR_RELOADED`.\n- Las peticiones subsecuentes retornarán `X-Cache-Status: HIT`.\n- Si la caché fue invalidada por un fallo del scheduler y la fuente sigue caída, responderá 503."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Estado y Scheduler",
+			"item": [
+				{
+					"name": "Consultar Estado de Caché y Scheduler",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"Estructura de respuesta válida\", function () {",
+									"    var data = pm.response.json();",
+									"    pm.expect(data).to.have.property(\"hasCachedData\");",
+									"    pm.expect(data).to.have.property(\"cachedItemCount\");",
+									"    pm.expect(data).to.have.property(\"lastScheduledStatus\");",
+									"    pm.expect(data).to.have.property(\"caffeineStats\");",
+									"    console.log(\"Caffeine Stats:\", data.caffeineStats);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/cache/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"cache",
+								"status"
+							]
+						},
+						"description": "Permite monitorear si hay datos en caché, cuántos registros hay, el resultado de la última ejecución del scheduler y si el simulador está configurado en modo fallo."
+					},
+					"response": []
+				},
+				{
+					"name": "Forzar Ejecución del Scheduler (Trigger 4h)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"Retorna estado de ejecución\", function () {",
+									"    var data = pm.response.json();",
+									"    pm.expect(data).to.have.property(\"status\");",
+									"    console.log(\"Resultado Scheduler:\", data.status);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/scheduler/trigger",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"scheduler",
+								"trigger"
+							]
+						},
+						"description": "Fuerza la ejecución inmediata de la tarea de actualización programada de 4 horas sin tener que esperar el intervalo de tiempo.\n- Si tiene éxito: actualiza la caché.\n- Si falla: invalida la caché de inmediato."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. Simulador de Fallos (Para Demos)",
+			"item": [
+				{
+					"name": "Consultar Estado del Simulador",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/simulator/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"simulator",
+								"status"
+							]
+						},
+						"description": "Consulta si la fuente de datos externa simulada está configurada para responder con éxito o con error."
+					},
+					"response": []
+				},
+				{
+					"name": "Activar Fallo Simulado (Simular Caída BD/API)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"Simulador en modo fallo\", function () {",
+									"    var data = pm.response.json();",
+									"    pm.expect(data.simulationFailing).to.be.true;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/simulator/toggle-failure?enabled=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"simulator",
+								"toggle-failure"
+							],
+							"query": [
+								{
+									"key": "enabled",
+									"value": "true",
+									"description": "true para forzar error en la fuente"
+								}
+							]
+						},
+						"description": "Hace que las siguientes consultas a la fuente de datos (tanto del scheduler como de las peticiones HTTP si hay cache miss) lancen una excepción simulando desconexión o fallo en base de datos."
+					},
+					"response": []
+				},
+				{
+					"name": "Desactivar Fallo Simulado (Restablecer Servicio)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"Simulador restablecido (éxito)\", function () {",
+									"    var data = pm.response.json();",
+									"    pm.expect(data.simulationFailing).to.be.false;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/simulator/toggle-failure?enabled=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"simulator",
+								"toggle-failure"
+							],
+							"query": [
+								{
+									"key": "enabled",
+									"value": "false",
+									"description": "false para responder con éxito"
+								}
+							]
+						},
+						"description": "Restablece la fuente de datos simulada para que responda con registros de productos válidos generados con Datafaker."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "4. Actuator y Métricas",
+			"item": [
+				{
+					"name": "Actuator Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/actuator/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"actuator",
+								"health"
+							]
+						},
+						"description": "Verifica la salud de la aplicación."
+					},
+					"response": []
+				},
+				{
+					"name": "Actuator Metrics - Cache Gets",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/actuator/metrics/cache.gets",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"actuator",
+								"metrics",
+								"cache.gets"
+							]
+						},
+						"description": "Métricas nativas de aciertos y consultas en la caché Caffeine expuestas vía Micrometer."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
+
